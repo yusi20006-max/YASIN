@@ -1,0 +1,37 @@
+<resources>
+    <string name="app_name">یاسین‌هاب</string>
+    <string name="app_subtitle">مرکز کنترل بومی اکوسیستم یاسین</string>
+
+    <string name="nav_hub">هاب</string>
+    <string name="nav_ai">هوش و ایجنت</string>
+    <string name="nav_press">انتشارات</string>
+    <string name="nav_docs">اسناد و MCP</string>
+    <string name="nav_relay">پل ریموت</string>
+
+    <string name="hub_hero_badge">معماری بومی ماژولار • نسخه ۱.۰</string>
+    <string name="hub_hero_title">اکوسیستم یکپارچه یاسین</string>
+    <string name="hub_hero_desc">مدیریت هوشمند، تولید محتوا و بازرسی مخازن به‌صورت بومی روی اندروید، با ساختار پلاگین‌پذیر برای اتصال به سرور ریموت در فازهای بعدی.</string>
+
+    <string name="filter_all">همه</string>
+    <string name="filter_native">نیتیو فعال</string>
+    <string name="filter_remote">آماده اتصال ریموت</string>
+
+    <string name="ai_tab_chat">گفتگوی هوشمند</string>
+    <string name="ai_tab_agent">ایجنت خودکار</string>
+    <string name="ai_input_hint">پیام یا دستور خود را به فارسی بنویسید...</string>
+    <string name="agent_input_hint">هدف خود را بنویسید (مثلاً: پیش‌نویس مقاله بساز یا مخزن را بررسی کن)...</string>
+    <string name="send_cd">ارسال</string>
+    <string name="clear_chat_cd">پاک کردن گفتگو</string>
+
+    <string name="press_new_article">نوشته جدید</string>
+    <string name="press_empty_title">هنوز نوشته‌ای ثبت نشده است</string>
+    <string name="press_empty_desc">اولین یادداشت یا مقاله خود را در یاسین پرس بنویسید یا از ایجنت هوشمند بخواهید پیش‌نویس آن را آماده کند.</string>
+
+    <string name="docs_refresh_cd">به‌روزرسانی مخازن</string>
+    <string name="docs_empty_title">مخزنی یافت نشد</string>
+
+    <string name="settings_title">تنظیمات</string>
+    <string name="relay_title">تنظیمات و اتصالات</string>
+    <string name="relay_test_btn">بررسی اتصال سرور</string>
+    <string name="save_settings">ذخیره تنظیمات</string>
+</resources>
