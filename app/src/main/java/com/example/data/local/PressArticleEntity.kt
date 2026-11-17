@@ -15,5 +15,7 @@ data class PressArticleEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val eitaaMessageId: String? = null,
-    val eitaaPublishedAt: Long? = null
+    val eitaaPublishedAt: Long? = null,
+    val sourceChannel: String? = null,
+    val sourcePostKey: String? = null
 )

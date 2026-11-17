@@ -156,20 +156,18 @@ fun PressScreen(
                 }
             }
 
-            // 3-way section switcher: Articles | Full Text Archive | Operation Logs
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                PressSectionTab.entries.forEachIndexed { index, tab ->
-                    SegmentedButton(
+            // 4-way section switcher: Articles | Telegram Auto-Feed | Full Text Archive | Operation Logs
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(PressSectionTab.entries) { tab ->
+                    FilterChip(
                         selected = state.selectedTab == tab,
                         onClick = { viewModel.selectTab(tab) },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = PressSectionTab.entries.size
-                        ),
+                        label = { Text(tab.labelFa, maxLines = 1) },
                         modifier = Modifier.testTag("press_tab_${tab.name.lowercase()}")
-                    ) {
-                        Text(tab.labelFa, maxLines = 1)
-                    }
+                    )
                 }
             }
 
@@ -231,6 +229,23 @@ fun PressScreen(
                             }
                             context.startActivity(Intent.createChooser(shareIntent, "اشتراک‌گذاری نوشته"))
                         }
+                    )
+                }
+
+                PressSectionTab.AUTO_FEED -> {
+                    TelegramAutoFeedTabContent(
+                        state = state,
+                        onToggleAutoPublish = { enabled ->
+                            viewModel.toggleAutoPublish(context, enabled)
+                        },
+                        onSelectHourlyLimit = viewModel::updateHourlyLimit,
+                        onToggleAutoRewrite = viewModel::toggleAutoRewriteWithAi,
+                        onRunNow = viewModel::runAutoPipelineNow,
+                        onAddChannel = viewModel::addTelegramChannel,
+                        onToggleChannel = viewModel::toggleTelegramChannel,
+                        onDeleteChannel = viewModel::deleteTelegramChannel,
+                        onRestoreDefaults = viewModel::restoreDefaultChannels,
+                        onOpenSettings = onOpenEitaayarSettings
                     )
                 }
 

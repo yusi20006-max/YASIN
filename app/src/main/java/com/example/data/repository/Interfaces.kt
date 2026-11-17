@@ -3,6 +3,7 @@ package com.example.data.repository
 import com.example.data.local.ChatMessageEntity
 import com.example.data.local.OperationLogEntity
 import com.example.data.local.PressArticleEntity
+import com.example.data.local.TelegramChannelEntity
 import com.example.data.remote.EitaaChannelPost
 import com.example.data.remote.EitaaPublishResult
 import com.example.data.remote.RelayPingResult
@@ -35,7 +36,11 @@ data class RelaySettings(
     val darkTheme: Boolean = true,
     val autoAttachContext: Boolean = true,
     val eitaayarToken: String = "",
-    val eitaaChannelId: String = ""
+    val eitaaChannelId: String = "",
+    val pressAutoPublishEnabled: Boolean = false,
+    val pressHourlyLimit: Int = 20,
+    val pressAutoRewriteWithAi: Boolean = false,
+    val pressLastAutoRunAt: Long = 0L
 )
 
 /**
@@ -108,6 +113,15 @@ interface EcosystemInspectorRepository {
     suspend fun fetchReadme(owner: String, repoName: String): String
 }
 
+interface TelegramChannelRepository {
+    fun observeChannels(): Flow<List<TelegramChannelEntity>>
+    suspend fun ensureDefaultsSeeded()
+    suspend fun addChannel(rawUsername: String, titleFa: String): Result<TelegramChannelEntity>
+    suspend fun toggleChannel(channel: TelegramChannelEntity)
+    suspend fun deleteChannel(username: String)
+    suspend fun restoreDefaults()
+}
+
 /**
  * Persistent settings and Phase-2 Remote Relay Bridge configuration.
  */
@@ -118,5 +132,9 @@ interface RelayConfigRepository {
     suspend fun updateDarkTheme(dark: Boolean)
     suspend fun updateAutoAttachContext(enabled: Boolean)
     suspend fun updateEitaayarConfig(token: String, channelId: String)
+    suspend fun updatePressAutoPublishEnabled(enabled: Boolean)
+    suspend fun updatePressHourlyLimit(limit: Int)
+    suspend fun updatePressAutoRewriteWithAi(enabled: Boolean)
+    suspend fun updatePressLastAutoRunAt(timestamp: Long)
     suspend fun pingRelay(url: String): RelayPingResult
 }

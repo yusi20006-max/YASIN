@@ -41,4 +41,25 @@ interface YasinDao {
 
     @Query("DELETE FROM operation_logs")
     suspend fun clearLogs()
+
+    @Query("SELECT * FROM telegram_channels ORDER BY isDefault DESC, addedAt ASC")
+    fun observeTelegramChannels(): Flow<List<TelegramChannelEntity>>
+
+    @Query("SELECT * FROM telegram_channels WHERE isEnabled = 1 ORDER BY isDefault DESC, addedAt ASC")
+    suspend fun getEnabledTelegramChannels(): List<TelegramChannelEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTelegramChannel(channel: TelegramChannelEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertDefaultTelegramChannels(channels: List<TelegramChannelEntity>)
+
+    @Query("DELETE FROM telegram_channels WHERE username = :username")
+    suspend fun deleteTelegramChannel(username: String)
+
+    @Query("SELECT COUNT(*) FROM press_articles WHERE sourcePostKey = :sourcePostKey")
+    suspend fun countArticlesBySourceKey(sourcePostKey: String): Int
+
+    @Query("SELECT COUNT(*) FROM press_articles WHERE sourceChannel IS NOT NULL AND eitaaPublishedAt IS NOT NULL AND eitaaPublishedAt >= :sinceTimestamp")
+    suspend fun countAutoPublishedSince(sinceTimestamp: Long): Int
 }

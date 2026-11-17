@@ -267,7 +267,9 @@ fun YasinNavApp(
                                     aiGateway = appContainer.aiGateway,
                                     eitaaRepository = appContainer.eitaaRepository,
                                     relayConfigRepository = appContainer.relayConfigRepository,
-                                    logRepository = appContainer.logRepository
+                                    logRepository = appContainer.logRepository,
+                                    telegramChannelRepository = appContainer.telegramChannelRepository,
+                                    pressPipeline = appContainer.pressPipeline
                                 )
                             )
                             PressScreen(

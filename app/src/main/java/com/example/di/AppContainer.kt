@@ -6,6 +6,7 @@ import com.example.data.local.YasinDatabase
 import com.example.data.remote.EitaaClient
 import com.example.data.remote.GitHubApiService
 import com.example.data.remote.RelayPingClient
+import com.example.data.remote.TelegramChannelClient
 import com.example.data.repository.AiGateway
 import com.example.data.repository.DataStoreRelayConfigRepository
 import com.example.data.repository.EcosystemInspectorRepository
@@ -18,6 +19,9 @@ import com.example.data.repository.PressRepository
 import com.example.data.repository.RelayConfigRepository
 import com.example.data.repository.RoomLogRepository
 import com.example.data.repository.RoomPressRepository
+import com.example.data.repository.RoomTelegramChannelRepository
+import com.example.data.repository.TelegramChannelRepository
+import com.example.data.repository.TelegramPressPipeline
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
@@ -28,8 +32,10 @@ import java.util.concurrent.TimeUnit
 
 class AppContainer(context: Context) {
 
+    private val appContext: Context = context.applicationContext
+
     private val database: YasinDatabase by lazy {
-        YasinDatabase.getInstance(context)
+        YasinDatabase.getInstance(appContext)
     }
 
     val yasinDao: YasinDao by lazy {
@@ -70,6 +76,10 @@ class AppContainer(context: Context) {
         EitaaClient(okHttpClient)
     }
 
+    private val telegramChannelClient: TelegramChannelClient by lazy {
+        TelegramChannelClient(okHttpClient)
+    }
+
     val aiGateway: AiGateway by lazy {
         FirebaseAiLogicGateway()
     }
@@ -86,11 +96,27 @@ class AppContainer(context: Context) {
         NetworkEitaaRepository(eitaaClient)
     }
 
+    val telegramChannelRepository: TelegramChannelRepository by lazy {
+        RoomTelegramChannelRepository(yasinDao)
+    }
+
     val inspectorRepository: EcosystemInspectorRepository by lazy {
         GitHubMcpInspectorRepository(gitHubApi)
     }
 
     val relayConfigRepository: RelayConfigRepository by lazy {
-        DataStoreRelayConfigRepository(context.applicationContext, relayPingClient)
+        DataStoreRelayConfigRepository(appContext, relayPingClient)
+    }
+
+    val pressPipeline: TelegramPressPipeline by lazy {
+        TelegramPressPipeline(
+            dao = yasinDao,
+            telegramClient = telegramChannelClient,
+            pressRepository = pressRepository,
+            eitaaRepository = eitaaRepository,
+            relayConfigRepository = relayConfigRepository,
+            aiGateway = aiGateway,
+            logRepository = logRepository
+        )
     }
 }

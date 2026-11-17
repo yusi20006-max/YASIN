@@ -1,11 +1,13 @@
 package com.example.ui.screens.press
 
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.OperationLogEntity
 import com.example.data.local.PressArticleEntity
+import com.example.data.local.TelegramChannelEntity
 import com.example.data.remote.EitaaChannelPost
 import com.example.data.repository.AiGateway
 import com.example.data.repository.EitaaRepository
@@ -13,6 +15,9 @@ import com.example.data.repository.LogRepository
 import com.example.data.repository.PressRepository
 import com.example.data.repository.RelayConfigRepository
 import com.example.data.repository.RelaySettings
+import com.example.data.repository.TelegramChannelRepository
+import com.example.data.repository.TelegramPressPipeline
+import com.example.worker.YasinPressScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +32,8 @@ private const val TAG = "PressViewModel"
 
 enum class PressSectionTab(val labelFa: String) {
     ARTICLES("نوشته‌ها"),
-    TEXT_ARCHIVE("کل انتشارات (متن)"),
+    AUTO_FEED("خودکار تلگرام"),
+    TEXT_ARCHIVE("کل متن‌ها"),
     LOGS("ثبت لاگ")
 }
 
@@ -65,6 +71,9 @@ data class PressUiState(
     val selectedTab: PressSectionTab = PressSectionTab.ARTICLES,
     val articles: List<PressArticleEntity> = emptyList(),
     val allArticles: List<PressArticleEntity> = emptyList(),
+    val telegramChannels: List<TelegramChannelEntity> = emptyList(),
+    val publishedLastHour: Int = 0,
+    val isRunningAutoSync: Boolean = false,
     val searchQuery: String = "",
     val selectedFilter: PressFilter = PressFilter.ALL,
     val editor: PressEditorState = PressEditorState(),
@@ -85,7 +94,9 @@ class PressViewModel(
     private val aiGateway: AiGateway,
     private val eitaaRepository: EitaaRepository,
     private val relayConfigRepository: RelayConfigRepository,
-    private val logRepository: LogRepository
+    private val logRepository: LogRepository,
+    private val telegramChannelRepository: TelegramChannelRepository,
+    private val pressPipeline: TelegramPressPipeline
 ) : ViewModel() {
 
     private val tabFlow = MutableStateFlow(PressSectionTab.ARTICLES)
@@ -93,6 +104,7 @@ class PressViewModel(
     private val filterFlow = MutableStateFlow(PressFilter.ALL)
     private val editorFlow = MutableStateFlow(PressEditorState())
     private val publishingIdFlow = MutableStateFlow<Long?>(null)
+    private val isRunningAutoSyncFlow = MutableStateFlow(false)
     private val statusBannerFlow = MutableStateFlow<String?>(null)
     private val errorBannerFlow = MutableStateFlow<String?>(null)
     private val archiveSourceFlow = MutableStateFlow(TextArchiveSource.LOCAL_PUBLICATIONS)
@@ -101,12 +113,19 @@ class PressViewModel(
     private val eitaaErrorFlow = MutableStateFlow<String?>(null)
     private val logFilterFlow = MutableStateFlow(LogLevelFilter.ALL)
 
+    init {
+        viewModelScope.launch {
+            telegramChannelRepository.ensureDefaultsSeeded()
+        }
+    }
+
     private val baseDataFlow = combine(
         pressRepository.observeArticles(),
         relayConfigRepository.settingsFlow,
-        logRepository.observeLogs()
-    ) { articles, settings, logs ->
-        Triple(articles, settings, logs)
+        logRepository.observeLogs(),
+        telegramChannelRepository.observeChannels()
+    ) { articles, settings, logs, channels ->
+        listOf(articles, settings, logs, channels)
     }
 
     private val uiControlsFlow = combine(
@@ -114,9 +133,10 @@ class PressViewModel(
         searchFlow,
         filterFlow,
         editorFlow,
-        publishingIdFlow
-    ) { tab, query, filter, editor, publishingId ->
-        listOf(tab, query, filter, editor, publishingId)
+        publishingIdFlow,
+        isRunningAutoSyncFlow
+    ) { values ->
+        values
     }
 
     private val feedAndLogsControlsFlow = combine(
@@ -135,12 +155,21 @@ class PressViewModel(
         baseDataFlow,
         uiControlsFlow,
         feedAndLogsControlsFlow
-    ) { (articles, settings, logs), controls, feedValues ->
+    ) { baseValues, controls, feedValues ->
+        @Suppress("UNCHECKED_CAST")
+        val articles = baseValues[0] as List<PressArticleEntity>
+        val settings = baseValues[1] as RelaySettings
+        @Suppress("UNCHECKED_CAST")
+        val logs = baseValues[2] as List<OperationLogEntity>
+        @Suppress("UNCHECKED_CAST")
+        val channels = baseValues[3] as List<TelegramChannelEntity>
+
         val tab = controls[0] as PressSectionTab
         val query = controls[1] as String
         val filter = controls[2] as PressFilter
         val editor = controls[3] as PressEditorState
         val publishingId = controls[4] as Long?
+        val isRunningAutoSync = controls[5] as Boolean
 
         val statusBanner = feedValues[0] as String?
         val errorBanner = feedValues[1] as String?
@@ -163,8 +192,14 @@ class PressViewModel(
                 article.title.contains(cleanQuery, ignoreCase = true) ||
                 article.body.contains(cleanQuery, ignoreCase = true) ||
                 article.category.contains(cleanQuery, ignoreCase = true) ||
-                article.tags.contains(cleanQuery, ignoreCase = true)
+                article.tags.contains(cleanQuery, ignoreCase = true) ||
+                (article.sourceChannel?.contains(cleanQuery, ignoreCase = true) == true)
             matchesFilter && matchesQuery
+        }
+
+        val oneHourAgo = System.currentTimeMillis() - 3_600_000L
+        val publishedLastHour = articles.count { art ->
+            art.sourceChannel != null && art.eitaaPublishedAt != null && art.eitaaPublishedAt >= oneHourAgo
         }
 
         val filteredLogs = logs.filter { log ->
@@ -179,6 +214,9 @@ class PressViewModel(
             selectedTab = tab,
             articles = filteredArticles,
             allArticles = articles,
+            telegramChannels = channels,
+            publishedLastHour = publishedLastHour,
+            isRunningAutoSync = isRunningAutoSync,
             searchQuery = query,
             selectedFilter = filter,
             editor = editor,
@@ -206,6 +244,113 @@ class PressViewModel(
             eitaaPostsFlow.value.isEmpty()
         ) {
             refreshEitaaChannelPosts()
+        }
+    }
+
+    fun toggleAutoPublish(context: Context, enabled: Boolean) {
+        viewModelScope.launch {
+            relayConfigRepository.updatePressAutoPublishEnabled(enabled)
+            YasinPressScheduler.syncSchedule(context, enabled)
+            val limit = uiState.value.settings.pressHourlyLimit
+            logRepository.log(
+                module = "Yasin Press Auto",
+                level = "INFO",
+                title = if (enabled) "فعال‌سازی انتشار خودکار ساعتی" else "توقف انتشار خودکار ساعتی",
+                details = if (enabled) {
+                    "زمان‌بند WorkManager برای انتشار خودکار حداکثر $limit خبر در ساعت فعال شد."
+                } else {
+                    "زمان‌بند انتشار خودکار ساعتی غیرفعال شد."
+                }
+            )
+            statusBannerFlow.value = if (enabled) {
+                "انتشار خودکار ساعتی فعال شد (تا $limit خبر در هر ساعت)."
+            } else {
+                "انتشار خودکار ساعتی متوقف شد."
+            }
+        }
+    }
+
+    fun updateHourlyLimit(limit: Int) {
+        viewModelScope.launch {
+            relayConfigRepository.updatePressHourlyLimit(limit)
+        }
+    }
+
+    fun toggleAutoRewriteWithAi(enabled: Boolean) {
+        viewModelScope.launch {
+            relayConfigRepository.updatePressAutoRewriteWithAi(enabled)
+        }
+    }
+
+    fun addTelegramChannel(username: String, titleFa: String) {
+        viewModelScope.launch {
+            dismissBanners()
+            val result = telegramChannelRepository.addChannel(username, titleFa)
+            result.onSuccess { entity ->
+                logRepository.log(
+                    module = "Telegram Channels",
+                    level = "INFO",
+                    title = "افزودن کانال تلگرام",
+                    details = "${entity.titleFa} (@${entity.username})"
+                )
+                statusBannerFlow.value = "کانال @${entity.username} به لیست گردآوری اضافه شد."
+            }.onFailure { err ->
+                errorBannerFlow.value = err.localizedMessage ?: "نام کاربری کانال معتبر نیست."
+            }
+        }
+    }
+
+    fun toggleTelegramChannel(channel: TelegramChannelEntity) {
+        viewModelScope.launch {
+            telegramChannelRepository.toggleChannel(channel)
+        }
+    }
+
+    fun deleteTelegramChannel(username: String) {
+        viewModelScope.launch {
+            telegramChannelRepository.deleteChannel(username)
+            logRepository.log(
+                module = "Telegram Channels",
+                level = "INFO",
+                title = "حذف کانال تلگرام",
+                details = "کانال @$username از لیست حذف شد."
+            )
+        }
+    }
+
+    fun restoreDefaultChannels() {
+        viewModelScope.launch {
+            telegramChannelRepository.restoreDefaults()
+            statusBannerFlow.value = "لیست کانال‌های پیش‌فرض یاسین پرس بازیابی شد."
+        }
+    }
+
+    fun runAutoPipelineNow() {
+        if (isRunningAutoSyncFlow.value) return
+        viewModelScope.launch {
+            dismissBanners()
+            isRunningAutoSyncFlow.value = true
+            try {
+                val res = pressPipeline.runCollectionAndPublish("اجرای دستی فوری")
+                if (res.hasErrors) {
+                    errorBannerFlow.value = res.summaryFa
+                } else {
+                    statusBannerFlow.value = res.summaryFa
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val err = e.localizedMessage ?: "خطا در اجرای گردآوری خودکار اخبار تلگرام."
+                errorBannerFlow.value = err
+                logRepository.log(
+                    module = "Yasin Press Auto",
+                    level = "ERROR",
+                    title = "استثنا در اجرای فوری",
+                    details = err
+                )
+            } finally {
+                isRunningAutoSyncFlow.value = false
+            }
         }
     }
 
@@ -297,7 +442,9 @@ class PressViewModel(
                 createdAt = existing?.createdAt ?: System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis(),
                 eitaaMessageId = existing?.eitaaMessageId,
-                eitaaPublishedAt = existing?.eitaaPublishedAt
+                eitaaPublishedAt = existing?.eitaaPublishedAt,
+                sourceChannel = existing?.sourceChannel,
+                sourcePostKey = existing?.sourcePostKey
             )
             pressRepository.saveArticle(entity)
             logRepository.log(
@@ -491,7 +638,9 @@ class PressViewModel(
             aiGateway: AiGateway,
             eitaaRepository: EitaaRepository,
             relayConfigRepository: RelayConfigRepository,
-            logRepository: LogRepository
+            logRepository: LogRepository,
+            telegramChannelRepository: TelegramChannelRepository,
+            pressPipeline: TelegramPressPipeline
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -500,7 +649,9 @@ class PressViewModel(
                     aiGateway = aiGateway,
                     eitaaRepository = eitaaRepository,
                     relayConfigRepository = relayConfigRepository,
-                    logRepository = logRepository
+                    logRepository = logRepository,
+                    telegramChannelRepository = telegramChannelRepository,
+                    pressPipeline = pressPipeline
                 ) as T
             }
         }
